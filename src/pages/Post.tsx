@@ -1,7 +1,6 @@
-// src/pages/Post.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { Plus, Image, Video } from "lucide-react";
+import { Plus, Image, Video, X } from "lucide-react";
 import CommentModal from "../components/CommentModal";
 
 /* ===============================
@@ -78,7 +77,7 @@ export default function Post({ user }: { user: UserType | null }) {
   }, [user]);
 
   async function fetchPosts() {
-    const { data: postsData, error } = await supabase
+    const { data: postsData } = await supabase
       .from("posts")
       .select(`
         id,
@@ -94,37 +93,33 @@ export default function Post({ user }: { user: UserType | null }) {
       `)
       .order("created_at", { ascending: false });
 
-    if (error || !postsData) {
-      console.error(error);
+    if (!postsData?.length) {
+      setPosts([]);
       return;
     }
 
-    const authorIds = [
-      ...new Set(postsData.map(p => p.author_id).filter(Boolean))
-    ];
+    const authorIds = [...new Set(postsData.map(p => p.author_id).filter(Boolean))];
 
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, display_name, username, avatar_url")
       .in("id", authorIds);
 
-    const profileMap = new Map(
-      (profiles || []).map(p => [p.id, p])
-    );
+    const profileMap = new Map((profiles || []).map(p => [p.id, p]));
 
-    const merged = postsData.map(post => ({
-      ...post,
-      profile: post.author_id
-        ? profileMap.get(post.author_id) || {
-            id: post.author_id,
+    setPosts(
+      postsData.map(p => ({
+        ...p,
+        profile: p.author_id
+          ? profileMap.get(p.author_id) || {
+            id: p.author_id,
             display_name: "User",
             username: null,
             avatar_url: null
           }
-        : null
-    }));
-
-    setPosts(merged);
+          : null
+      }))
+    );
   }
 
   async function fetchLikedPosts() {
@@ -148,7 +143,7 @@ export default function Post({ user }: { user: UserType | null }) {
   }
 
   /* ===============================
-     CREATE POST
+     CREATE POST (FIXED)
   =============================== */
   async function createPost() {
     if (!content.trim() && !file) return;
@@ -179,7 +174,11 @@ export default function Post({ user }: { user: UserType | null }) {
     }
 
     await supabase.from("posts").insert({
-      author_id: user?.id ?? null,
+      author_id: user!.id,
+      author_name:
+        user?.user_metadata?.full_name ||
+        user?.email ||
+        "User",
       content,
       media_url: mediaUrl,
       media_type: mediaType
@@ -192,9 +191,44 @@ export default function Post({ user }: { user: UserType | null }) {
     fetchPosts();
   }
 
+
   /* ===============================
-     ACTIONS
+     REPOST (TOGGLE FIXED)
   =============================== */
+  async function repost(post: PostType) {
+    if (!user) return;
+
+    const { data: existing } = await supabase
+      .from("posts")
+      .select("id")
+      .eq("author_id", user.id)
+      .eq("repost_of", post.id)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase.from("posts").delete().eq("id", existing.id);
+      await supabase.rpc("decrement_post_repost_count", {
+        p_post_id: post.id
+      });
+    } else {
+      await supabase.from("posts").insert({
+        author_id: user.id,
+        author_name:
+          user.user_metadata?.full_name ||
+          user.email ||
+          "User",
+        repost_of: post.id
+      });
+
+      await supabase.rpc("increment_post_repost_count", {
+        p_post_id: post.id
+      });
+    }
+
+    fetchPosts();
+  }
+
+
   async function toggleLike(postId: string) {
     if (!user) return;
 
@@ -220,21 +254,6 @@ export default function Post({ user }: { user: UserType | null }) {
     fetchLikedPosts();
   }
 
-  async function repost(post: PostType) {
-    if (!user) return;
-
-    await supabase.from("posts").insert({
-      author_id: user.id,
-      repost_of: post.id
-    });
-
-    await supabase.rpc("increment_post_repost_count", {
-      p_post_id: post.id
-    });
-
-    fetchPosts();
-  }
-
   async function togglePersonalize(authorId: string | null) {
     if (!user || !authorId || authorId === user.id) return;
 
@@ -245,7 +264,7 @@ export default function Post({ user }: { user: UserType | null }) {
       .eq("following_id", authorId)
       .select();
 
-    if (!deleted || deleted.length === 0) {
+    if (!deleted?.length) {
       await supabase.from("personalize").insert({
         follower_id: user.id,
         following_id: authorId
@@ -264,18 +283,7 @@ export default function Post({ user }: { user: UserType | null }) {
       {posts.map(post => (
         <div key={post.id} className="bg-white p-4 rounded-xl border">
 
-          {/* AUTHOR */}
-          <div
-            className="flex items-center gap-3 cursor-pointer"
-            onClick={() =>
-              post.profile?.id &&
-              window.dispatchEvent(
-                new CustomEvent("open-profile", {
-                  detail: post.profile.id
-                })
-              )
-            }
-          >
+          <div className="flex items-center gap-3">
             <img
               src={
                 post.profile?.avatar_url ||
@@ -283,7 +291,6 @@ export default function Post({ user }: { user: UserType | null }) {
               }
               className="w-10 h-10 rounded-full object-cover"
             />
-
             <div>
               <div className="font-semibold">
                 {post.profile?.display_name || "User"}
@@ -339,13 +346,29 @@ export default function Post({ user }: { user: UserType | null }) {
       {showComposer && (
         <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50">
           <div className="bg-white w-full sm:max-w-lg p-6 rounded-t-2xl sm:rounded-2xl">
+
+            <div className="flex justify-between mb-3">
+              <h3 className="font-semibold">Create Post</h3>
+              <button onClick={() => setShowComposer(false)}>
+                <X />
+              </button>
+            </div>
+
             <textarea
               value={content}
               onChange={e => setContent(e.target.value)}
               rows={4}
-              className="w-full border rounded p-3 mb-4"
+              className="w-full border rounded p-3 mb-3"
               placeholder="What's happening?"
             />
+
+            {file && (
+              file.type.startsWith("image") ? (
+                <img src={URL.createObjectURL(file)} className="mb-3 rounded-lg" />
+              ) : (
+                <video src={URL.createObjectURL(file)} controls className="mb-3 rounded-lg w-full" />
+              )
+            )}
 
             <div className="flex justify-between">
               <div className="flex gap-4">
