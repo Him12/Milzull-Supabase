@@ -81,6 +81,7 @@ function App() {
         return (
           <Post
             user={user}
+            viewUserId={viewProfileId}
             onOpenProfile={(profileId: string) => {
               setViewProfileId(profileId);
               setMainPage("profile");
@@ -126,12 +127,13 @@ function App() {
           <Profile
             user={user}
             viewUserId={viewProfileId}
-            onGoMyPosts={() => {
-              setViewProfileId(null);
+            onGoMyPosts={(userId) => {
+              setViewProfileId(userId);
               setMainPage("my-posts");
             }}
+
             onLogout={async () => {
-              await supabase.auth.signOut();
+              await supabase.auth.signOut({scope: "local"});
               setUser(null);
               setIsAuth(false);
               setAuthPage("login");
@@ -143,6 +145,7 @@ function App() {
         return (
           <Post
             user={user}
+            viewUserId={viewProfileId}
             onOpenProfile={(profileId: string) => {
               setViewProfileId(profileId);
               setMainPage("profile");

@@ -41,9 +41,11 @@ type PostType = {
 =============================== */
 export default function Post({
   user,
+  viewUserId,
   onOpenProfile
 }: {
   user: UserType | null;
+  viewUserId?: string | null;
   onOpenProfile?: (profileId: string) => void;
 }) {
 
@@ -56,6 +58,8 @@ export default function Post({
   const [content, setContent] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
+
 
   /* ===============================
      FETCH POSTS + PROFILES
@@ -79,7 +83,8 @@ export default function Post({
         supabase.removeChannel(channel);
       }
     };
-  }, []);
+  }, [viewUserId]);
+
 
 
   useEffect(() => {
@@ -90,21 +95,28 @@ export default function Post({
   }, [user]);
 
   async function fetchPosts() {
-    const { data: postsData } = await supabase
+    const query = supabase
       .from("posts")
       .select(`
-        id,
-        author_id,
-        content,
-        media_url,
-        media_type,
-        created_at,
-        like_count,
-        comment_count,
-        repost_count,
-        repost_of
-      `)
+      id,
+      author_id,
+      content,
+      media_url,
+      media_type,
+      created_at,
+      like_count,
+      comment_count,
+      repost_count,
+      repost_of
+    `)
       .order("created_at", { ascending: false });
+
+    // 👇 IMPORTANT FIX
+    if (viewUserId) {
+      query.eq("author_id", viewUserId);
+    }
+
+    const { data: postsData } = await query;
 
     if (!postsData?.length) {
       setPosts([]);
@@ -134,6 +146,7 @@ export default function Post({
       }))
     );
   }
+
 
   async function fetchLikedPosts() {
     if (!user) return;
@@ -217,6 +230,7 @@ export default function Post({
       .eq("author_id", user.id)
       .eq("repost_of", post.id)
       .maybeSingle();
+
 
     if (existing) {
       await supabase.from("posts").delete().eq("id", existing.id);

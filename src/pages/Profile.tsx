@@ -53,7 +53,7 @@ export default function Profile({
 }: {
   user: User;
   viewUserId: string | null;
-  onGoMyPosts: () => void;
+  onGoMyPosts: (userId: string) => void;
   onLogout: () => void;
 }) {
   const isOwnProfile = !viewUserId || viewUserId === user.id;
@@ -156,15 +156,15 @@ export default function Profile({
 
   async function saveProfile() {
     if (!profile || !isOwnProfile) return;
-// Submit pending state/city if needed
-  if (customState || customCity) {
-    await supabase.from("pending_locations").insert({
-      user_id: user.id,
-      type: customCity ? "city" : "state",
-      state_name: customState || profile.state,
-      city_name: customCity || null
-    });
-  }
+    // Submit pending state/city if needed
+    if (customState || customCity) {
+      await supabase.from("pending_locations").insert({
+        user_id: user.id,
+        type: customCity ? "city" : "state",
+        state_name: customState || profile.state,
+        city_name: customCity || null
+      });
+    }
     await supabase
       .from("profiles")
       .update({
@@ -266,10 +266,11 @@ export default function Profile({
           <p className="text-xs">HOMIES</p>
         </div>
 
-        <button onClick={onGoMyPosts}>
+        <button onClick={() => onGoMyPosts(profile.id)}>
           <p className="text-xl font-bold text-blue-600">{postCount}</p>
           <p className="text-xs">POSTS</p>
         </button>
+
 
         <div>
           <p className="text-xl font-bold">{milzullCount}</p>
