@@ -14,6 +14,7 @@ export interface UserType {
   };
 }
 
+
 type ProfileType = {
   id: string;
   display_name: string | null;
@@ -38,7 +39,14 @@ type PostType = {
 /* ===============================
    COMPONENT
 =============================== */
-export default function Post({ user }: { user: UserType | null }) {
+export default function Post({
+  user,
+  onOpenProfile
+}: {
+  user: UserType | null;
+  onOpenProfile?: (profileId: string) => void;
+}) {
+
   const [posts, setPosts] = useState<PostType[]>([]);
   const [likedPostIds, setLikedPostIds] = useState<string[]>([]);
   const [homieIds, setHomieIds] = useState<string[]>([]);
@@ -60,14 +68,19 @@ export default function Post({ user }: { user: UserType | null }) {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "posts" },
-        fetchPosts
+        () => {
+          fetchPosts();
+        }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, []);
+
 
   useEffect(() => {
     if (user) {
@@ -283,7 +296,16 @@ export default function Post({ user }: { user: UserType | null }) {
       {posts.map(post => (
         <div key={post.id} className="bg-white p-4 rounded-xl border">
 
-          <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-3 cursor-pointer"
+            onClick={() => {
+              if (post.profile?.id && onOpenProfile) {
+                onOpenProfile(post.profile.id);
+              }
+            }}
+
+          >
+
             <img
               src={
                 post.profile?.avatar_url ||

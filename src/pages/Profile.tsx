@@ -12,6 +12,21 @@ import {
   Upload
 } from "lucide-react";
 
+/* ================= TYPES ================= */
+
+type StateRow = {
+  id: number;
+  name: string;
+};
+
+type CityRow = {
+  id: number;
+  name: string;
+  state_id: number;
+};
+
+
+
 type ProfileRow = {
   id: string;
   display_name: string | null;
@@ -28,21 +43,21 @@ type ProfileRow = {
   website: string | null;
 };
 
-const STATES: Record<string, string[]> = {
-  Delhi: ["New Delhi"],
-  Karnataka: ["Bengaluru"],
-  Maharashtra: ["Mumbai", "Pune"]
-};
+/* ================= COMPONENT ================= */
 
 export default function Profile({
   user,
+  viewUserId,
   onGoMyPosts,
   onLogout
 }: {
   user: User;
+  viewUserId: string | null;
   onGoMyPosts: () => void;
   onLogout: () => void;
 }) {
+  const isOwnProfile = !viewUserId || viewUserId === user.id;
+
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [editMode, setEditMode] = useState(false);
 
@@ -50,17 +65,32 @@ export default function Profile({
   const [homiesCount] = useState(0);
   const [milzullCount] = useState(0);
 
+  const [states, setStates] = useState<StateRow[]>([]);
+  const [cities, setCities] = useState<CityRow[]>([]);
+
+  const [customState, setCustomState] = useState("");
+  const [customCity, setCustomCity] = useState("");
+
+
+
   /* ================= FETCH ================= */
+
   useEffect(() => {
     fetchProfile();
     fetchPostCount();
+    setEditMode(false);
+  }, [viewUserId]);
+
+  useEffect(() => {
+    fetchStates();
   }, []);
+
 
   async function fetchProfile() {
     const { data } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", user.id)
+      .eq("id", viewUserId || user.id)
       .single();
 
     setProfile(data);
@@ -70,48 +100,71 @@ export default function Profile({
     const { count } = await supabase
       .from("posts")
       .select("id", { count: "exact", head: true })
-      .eq("author_id", user.id);
+      .eq("author_id", viewUserId || user.id);
 
     setPostCount(count ?? 0);
   }
 
-  /* ================= AVATAR UPLOAD (FIXED) ================= */
+  async function fetchStates() {
+    const { data } = await supabase
+      .from("states")
+      .select("id, name")
+      .order("name");
+
+    setStates(data || []);
+  }
+
+  async function fetchCitiesByState(stateName: string) {
+    const state = states.find(s => s.name === stateName);
+    if (!state) return;
+
+    const { data } = await supabase
+      .from("cities")
+      .select("id, name, state_id")
+      .eq("state_id", state.id)
+      .order("name");
+
+    setCities(data || []);
+  }
+
+
+  /* ================= AVATAR ================= */
+
   async function uploadAvatar(file: File) {
-    if (!profile) return;
+    if (!profile || !isOwnProfile) return;
 
     const ext = file.name.split(".").pop();
-    const filePath = `${user.id}/avatar.${ext}`; // ✅ IMPORTANT
+    const path = `${user.id}/avatar.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
+    await supabase.storage
       .from("profile-avatars")
-      .upload(filePath, file, { upsert: true });
-
-    if (uploadError) {
-      alert(uploadError.message);
-      return;
-    }
+      .upload(path, file, { upsert: true });
 
     const { data } = supabase.storage
       .from("profile-avatars")
-      .getPublicUrl(filePath);
+      .getPublicUrl(path);
 
     const avatarUrl = `${data.publicUrl}?t=${Date.now()}`;
 
-    const { error } = await supabase
+    await supabase
       .from("profiles")
       .update({ avatar_url: avatarUrl })
       .eq("id", user.id);
 
-    if (!error) {
-      setProfile(prev =>
-        prev ? { ...prev, avatar_url: avatarUrl } : prev
-      );
-    }
+    setProfile(prev => prev ? { ...prev, avatar_url: avatarUrl } : prev);
   }
 
   async function saveProfile() {
-    if (!profile) return;
-
+    if (!profile || !isOwnProfile) return;
+// Submit pending state/city if needed
+  if (customState || customCity) {
+    await supabase.from("pending_locations").insert({
+      user_id: user.id,
+      type: customCity ? "city" : "state",
+      state_name: customState || profile.state,
+      city_name: customCity || null
+    });
+  }
     await supabase
       .from("profiles")
       .update({
@@ -119,8 +172,8 @@ export default function Profile({
         username: profile.username,
         phone: profile.phone,
         bio: profile.bio,
-        state: profile.state,
-        city: profile.city,
+        state: customState || profile.state,
+        city: customCity || profile.city,
         instagram: profile.instagram,
         twitter: profile.twitter,
         youtube: profile.youtube,
@@ -143,6 +196,9 @@ export default function Profile({
     { label: "Website", icon: <Globe size={16} />, url: profile.website }
   ].filter(l => l.url && l.url.trim() !== "");
 
+
+  /* ================= UI ================= */
+
   return (
     <div className="space-y-6">
 
@@ -151,23 +207,18 @@ export default function Profile({
         <div className="flex gap-4">
           <div className="relative">
             <img
-              src={
-                profile.avatar_url ||
-                `https://ui-avatars.com/api/?name=${profile.display_name}`
-              }
+              src={profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.display_name}`}
               className="w-20 h-20 rounded-full object-cover"
             />
 
-            {editMode && (
+            {editMode && isOwnProfile && (
               <label className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full cursor-pointer">
                 <Upload size={14} className="text-white" />
                 <input
+                  hidden
                   type="file"
                   accept="image/*"
-                  hidden
-                  onChange={e =>
-                    e.target.files && uploadAvatar(e.target.files[0])
-                  }
+                  onChange={e => e.target.files && uploadAvatar(e.target.files[0])}
                 />
               </label>
             )}
@@ -179,7 +230,6 @@ export default function Profile({
             <p className="text-sm text-gray-600">
               {profile.city}, {profile.state}
             </p>
-            <p className="text-sm mt-1">🟡 UNVERIFIED | 🟢 Email Verified</p>
 
             {socialLinks.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -188,11 +238,10 @@ export default function Profile({
                     key={i}
                     href={l.url!}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="noreferrer"
                     className="flex items-center gap-1 px-3 py-1 text-xs border rounded-full"
                   >
-                    {l.icon}
-                    {l.label}
+                    {l.icon} {l.label}
                   </a>
                 ))}
               </div>
@@ -200,67 +249,114 @@ export default function Profile({
           </div>
         </div>
 
-        <button
-          onClick={() => setEditMode(true)}
-          className="text-blue-600 flex items-center gap-1"
-        >
-          <Pencil size={16} /> Edit
-        </button>
+        {isOwnProfile && !editMode && (
+          <button
+            onClick={() => setEditMode(true)}
+            className="text-blue-600 flex items-center gap-1"
+          >
+            <Pencil size={16} /> Edit
+          </button>
+        )}
       </div>
 
       {/* ===== COUNTS ===== */}
       <div className="bg-white rounded-xl border p-4 grid grid-cols-3 text-center">
         <div>
           <p className="text-xl font-bold">{homiesCount}</p>
-          <p className="text-xs text-gray-500">HOMIES</p>
+          <p className="text-xs">HOMIES</p>
         </div>
 
         <button onClick={onGoMyPosts}>
           <p className="text-xl font-bold text-blue-600">{postCount}</p>
-          <p className="text-xs text-gray-500">POSTS</p>
+          <p className="text-xs">POSTS</p>
         </button>
 
         <div>
           <p className="text-xl font-bold">{milzullCount}</p>
-          <p className="text-xs text-gray-500">MILZULLS</p>
+          <p className="text-xs">MILZULLS</p>
         </div>
       </div>
 
       {/* ===== EDIT FORM ===== */}
-      {editMode && (
+      {editMode && isOwnProfile && (
         <div className="bg-white border rounded-xl p-6 space-y-3">
-          <input className="border p-2 w-full" placeholder="Display Name"
+
+          <input className="border p-2 w-full"
             value={profile.display_name || ""}
             onChange={e => setProfile({ ...profile, display_name: e.target.value })}
           />
-          <input className="border p-2 w-full" placeholder="Username"
+
+          <input className="border p-2 w-full"
             value={profile.username || ""}
             onChange={e => setProfile({ ...profile, username: e.target.value })}
           />
 
-          <input className="border p-2 w-full" placeholder="Phone"
+          <input className="border p-2 w-full"
             value={profile.phone || ""}
             onChange={e => setProfile({ ...profile, phone: e.target.value })}
           />
 
-          <textarea className="border p-2 w-full" placeholder="Bio"
+          <textarea className="border p-2 w-full"
             value={profile.bio || ""}
             onChange={e => setProfile({ ...profile, bio: e.target.value })}
           />
-          <select className="border p-2 w-full"
+
+          <select
+            className="border p-2 w-full"
             value={profile.state || ""}
-            onChange={e => setProfile({ ...profile, state: e.target.value, city: "" })}
+            onChange={e => {
+              setProfile({ ...profile, state: e.target.value, city: "" });
+              fetchCitiesByState(e.target.value);
+            }}
           >
             <option value="">Select State</option>
-            {Object.keys(STATES).map(s => <option key={s}>{s}</option>)}
+
+            {states.map(s => (
+              <option key={s.id} value={s.name}>
+                {s.name}
+              </option>
+            ))}
+
+            <option value="OTHER">Other</option>
           </select>
-          <select className="border p-2 w-full"
+
+          {profile.state === "OTHER" && (
+            <input
+              className="border p-2 w-full"
+              placeholder="Enter State Name"
+              value={customState}
+              onChange={e => setCustomState(e.target.value)}
+            />
+          )}
+
+
+
+          <select
+            className="border p-2 w-full"
             value={profile.city || ""}
+            disabled={!profile.state || profile.state === "OTHER"}
             onChange={e => setProfile({ ...profile, city: e.target.value })}
           >
             <option value="">Select City</option>
-            {profile.state && STATES[profile.state]?.map(c => <option key={c}>{c}</option>)}
+
+            {cities.map(c => (
+              <option key={c.id} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+
+            <option value="OTHER">Other</option>
           </select>
+          {profile.city === "OTHER" && (
+            <input
+              className="border p-2 w-full"
+              placeholder="Enter City Name"
+              value={customCity}
+              onChange={e => setCustomCity(e.target.value)}
+            />
+          )}
+
+
 
           <input className="border p-2 w-full" placeholder="Instagram"
             value={profile.instagram || ""}
@@ -284,10 +380,13 @@ export default function Profile({
           />
 
           <div className="flex gap-2">
-            <button onClick={saveProfile} className="bg-blue-600 text-white px-4 py-2 rounded">
+            <button onClick={saveProfile}
+              className="bg-blue-600 text-white px-4 py-2 rounded">
               Save
             </button>
-            <button onClick={() => setEditMode(false)} className="border px-4 py-2 rounded">
+            <button
+              onClick={() => { setEditMode(false); fetchProfile(); }}
+              className="border px-4 py-2 rounded">
               Cancel
             </button>
           </div>
@@ -295,13 +394,14 @@ export default function Profile({
       )}
 
       {/* ===== LOGOUT ===== */}
-      <button
-        onClick={onLogout}
-        className="w-full bg-red-50 text-red-600 py-4 rounded-xl flex justify-center gap-2"
-      >
-        <LogOut size={18} /> Log Out
-      </button>
+      {isOwnProfile && (
+        <button
+          onClick={onLogout}
+          className="w-full bg-red-50 text-red-600 py-4 rounded-xl flex justify-center gap-2"
+        >
+          <LogOut size={18} /> Log Out
+        </button>
+      )}
     </div>
   );
 }
-

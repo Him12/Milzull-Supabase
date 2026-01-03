@@ -81,7 +81,7 @@ function App() {
         return (
           <Post
             user={user}
-            onOpenProfile={(profileId) => {
+            onOpenProfile={(profileId: string) => {
               setViewProfileId(profileId);
               setMainPage("profile");
             }}
@@ -140,7 +140,16 @@ function App() {
         );
 
       default:
-        return <Post user={user} />;
+        return (
+          <Post
+            user={user}
+            onOpenProfile={(profileId: string) => {
+              setViewProfileId(profileId);
+              setMainPage("profile");
+            }}
+          />
+        );
+
     }
   };
 
@@ -172,8 +181,8 @@ function App() {
             mainPage === "services"
               ? "find"
               : mainPage === "my-posts"
-              ? "profile"
-              : mainPage
+                ? "profile"
+                : mainPage
           }
           onNavigate={(page) => {
             if (page !== "profile") {
