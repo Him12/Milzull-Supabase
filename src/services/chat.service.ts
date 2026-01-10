@@ -1,30 +1,29 @@
 import { supabase } from "../lib/supabaseClient";
 
-export async function getOrCreateChat(serviceId: string) {
+type GetOrCreateChatArgs = {
+  serviceId: string;
+  creatorId: string;
+  memberIds: string[];
+  isGroup: boolean;
+};
+
+export async function getOrCreateChat({
+  serviceId,
+  creatorId,
+  memberIds,
+  isGroup
+}: GetOrCreateChatArgs): Promise<string> {
   const { data, error } = await supabase.rpc("get_or_create_chat", {
-    p_service_id: serviceId
+    p_service_id: serviceId,
+    p_creator_id: creatorId,
+    p_member_ids: memberIds,
+    p_is_group: isGroup
   });
 
-  if (error) throw error;
-  return data as string;
-}
+  if (error) {
+    console.error("RPC error:", error);
+    throw error;
+  }
 
-export async function fetchMessages(chatId: string) {
-  return supabase
-    .from("messages")
-    .select("*")
-    .eq("chat_id", chatId)
-    .order("created_at");
-}
-
-export async function sendMessage(
-  chatId: string,
-  senderId: string,
-  message: string
-) {
-  return supabase.from("messages").insert({
-    chat_id: chatId,
-    sender_id: senderId,
-    message
-  });
+  return data;
 }

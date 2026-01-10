@@ -2,6 +2,8 @@
 import { useEffect, useState, useRef } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
+import { getOrCreateChat } from "../services/chat.service";
+
 
 /* ================= TYPES ================= */
 
@@ -132,23 +134,28 @@ export default function Notifications({
   }
 
   async function startChat(n: Notification) {
-    const serviceId =
-      n.service_id ||
-      n.milzull_service_id ||
-      n.service?.id;
+  const serviceId =
+    n.service_id ||
+    n.milzull_service_id ||
+    n.service?.id;
 
-    if (!serviceId) return;
+  if (!serviceId || !n.from_user_id) return;
 
-    const { data: chatId } = await supabase.rpc(
-      "create_milzull_chat",
-      { p_service_id: serviceId }
-    );
+  try {
+    const chatId = await getOrCreateChat({
+      serviceId,
+      creatorId: user.id,
+      memberIds: [user.id, n.from_user_id], // ✅ 1-1 chat
+      isGroup: false
+    });
 
-    if (chatId) {
-      onOpenChat(chatId);
-      deleteNotification(n.id);
-    }
+    onOpenChat(chatId);
+    deleteNotification(n.id);
+  } catch (err) {
+    console.error("Failed to start chat from notification", err);
   }
+}
+
 
   /* ================= UI ================= */
 

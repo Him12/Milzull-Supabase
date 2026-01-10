@@ -1,5 +1,3 @@
-
-
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabaseClient";
@@ -85,6 +83,18 @@ function App() {
 
     return () => listener?.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+  const handler = (e: Event) => {
+    const chatId = (e as CustomEvent<string>).detail;
+    setActiveChatId(chatId);
+    setMainPage("chat-window");
+  };
+
+  window.addEventListener("open-chat", handler);
+  return () => window.removeEventListener("open-chat", handler);
+}, []);
+
 
   async function fetchNotificationCount(userId: string) {
     const { count } = await supabase
@@ -217,15 +227,17 @@ function App() {
         );
 
       case "my-posts":
-        return (
-          <MyPosts
-            user={user}
-            onBack={() => {
-              setViewProfileId(null);
-              setMainPage("profile");
-            }}
-          />
-        );
+  return (
+    <MyPosts
+      user={user}
+      viewUserId={viewProfileId}
+      onBack={() => {
+        setViewProfileId(null);
+        setMainPage("profile");
+      }}
+    />
+  );
+
 
       case "notifications":
         return (

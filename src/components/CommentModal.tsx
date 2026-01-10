@@ -6,9 +6,17 @@ import { X } from "lucide-react";
 type Comment = {
   id: string;
   content: string;
-  user_id: string;
   created_at: string;
+  user_id: string;
+  profiles: {
+    id: string;
+    display_name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  };
 };
+
+
 
 type AuthUser = {
   id: string;
@@ -19,14 +27,18 @@ interface CommentModalProps {
   user: AuthUser;
   onClose: () => void;
   onCommentAdded: () => void;
+  onOpenProfile: (userId: string) => void;
 }
+
 
 export default function CommentModal({
   postId,
   user,
   onClose,
-  onCommentAdded
+  onCommentAdded,
+  onOpenProfile   //  THIS
 }: CommentModalProps) {
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [text, setText] = useState("");
 
@@ -45,14 +57,33 @@ export default function CommentModal({
   }, [postId]);
 
   async function fetchComments() {
-    const { data } = await supabase
-      .from("comments")
-      .select("*")
-      .eq("post_id", postId)
-      .order("created_at", { ascending: true });
+  const { data, error } = await supabase
+    .from("comments")
+    .select(`
+      id,
+      content,
+      created_at,
+      user_id,
+      profiles (
+        id,
+        display_name,
+        username,
+        avatar_url
+      )
+    `)
+    .eq("post_id", postId)
+    .order("created_at", { ascending: true });
 
-    setComments(data || []);
+  if (error) {
+    console.error("Fetch comments failed:", error);
+    return;
   }
+
+  setComments(data || []);
+}
+
+
+
 
   async function addComment() {
     if (!text.trim()) return;
@@ -68,10 +99,29 @@ export default function CommentModal({
         p_post_id: postId
       });
 
+      // 🔔 Notify post owner
+      const { data: post } = await supabase
+        .from("posts")
+        .select("author_id")
+        .eq("id", postId)
+        .single();
+
+      if (post?.author_id && post.author_id !== user.id) {
+        await supabase.from("milzull_notifications").insert({
+          user_id: post.author_id,
+          from_user_id: user.id,
+          type: "post_comment",
+          title: "New comment",
+          message: "Someone commented on your post",
+          service_id: null
+        });
+      }
+
       setText("");
       fetchComments();
       onCommentAdded();
     }
+
   }
 
   return (
@@ -102,10 +152,29 @@ export default function CommentModal({
         {/* COMMENTS LIST */}
         <div className="flex-1 space-y-3 overflow-y-auto pr-1">
           {comments.map(c => (
-            <div key={c.id} className="bg-gray-100 p-3 rounded-lg text-sm">
-              {c.content}
-            </div>
-          ))}
+  <div key={c.id} className="bg-gray-100 p-3 rounded-lg text-sm space-y-1">
+    
+    <div
+      className="flex items-center gap-2 cursor-pointer"
+      onClick={() => onOpenProfile(c.profiles.id)}
+    >
+      <img
+        src={
+          c.profiles.avatar_url ||
+          `https://ui-avatars.com/api/?name=${c.profiles.display_name}`
+        }
+        className="w-7 h-7 rounded-full object-cover"
+      />
+
+      <div className="text-xs font-medium">
+        {c.profiles.display_name || `@${c.profiles.username}`}
+      </div>
+    </div>
+
+    <p className="text-sm">{c.content}</p>
+  </div>
+))}
+
 
           {comments.length === 0 && (
             <p className="text-sm text-gray-500 text-center">

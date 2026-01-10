@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
+import HomiesModal from "../components/HomiesModal";
+
 import {
   Pencil,
   LogOut,
@@ -66,7 +68,7 @@ export default function Profile({
 
   const [postCount, setPostCount] = useState(0);
   const [homiesCount, setHomiesCount] = useState(0);
-  const [milzullCount] = useState(0);
+  const [milzullCount, setMilzullCount] = useState(0);
 
   const [isFollowing, setIsFollowing] = useState(false);
 
@@ -77,6 +79,10 @@ export default function Profile({
   const [customState, setCustomState] = useState("");
   const [customCity, setCustomCity] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
+  const [termsAcceptedAt, setTermsAcceptedAt] = useState<string | null>(null);
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsContent, setTermsContent] = useState<any>(null);
+  const [showHomies, setShowHomies] = useState(false);
 
 
 
@@ -87,6 +93,8 @@ export default function Profile({
     fetchPostCount();
     fetchHomiesCount();
     fetchFollowStatus();
+    fetchTermsAcceptance();
+    fetchMilzullCount();
     setEditMode(false);
   }, [viewUserId]);
 
@@ -161,36 +169,64 @@ export default function Profile({
   }
 
   async function toggleFollow() {
-  if (!viewUserId || viewUserId === user.id) return;
+    if (!viewUserId || viewUserId === user.id) return;
 
-  if (isFollowing) {
-    // UNFOLLOW
-    await supabase
-      .from("followers")
-      .delete()
-      .eq("follower_id", user.id)
-      .eq("following_id", viewUserId);
-  } else {
-    // FOLLOW
-    await supabase
-      .from("followers")
-      .insert({
-        follower_id: user.id,
-        following_id: viewUserId
+    if (isFollowing) {
+      // UNFOLLOW
+      await supabase
+        .from("followers")
+        .delete()
+        .eq("follower_id", user.id)
+        .eq("following_id", viewUserId);
+    } else {
+      // FOLLOW
+      await supabase
+        .from("followers")
+        .insert({
+          follower_id: user.id,
+          following_id: viewUserId
+        });
+
+      // 🔔 FOLLOW NOTIFICATION
+      await supabase.from("milzull_notifications").insert({
+        user_id: viewUserId,        // receiver
+        from_user_id: user.id,      // who followed
+        type: "follow",
+        title: "New follower",
+        message: `${profile?.display_name || "Someone"} followed you`
       });
+    }
 
-    // 🔔 FOLLOW NOTIFICATION
-    await supabase.from("milzull_notifications").insert({
-      user_id: viewUserId,        // receiver
-      from_user_id: user.id,      // who followed
-      type: "follow",
-      title: "New follower",
-      message: `${profile?.display_name || "Someone"} followed you`
-    });
+    setIsFollowing(!isFollowing);
+    fetchHomiesCount();
   }
 
-  setIsFollowing(!isFollowing);
-  fetchHomiesCount();
+  async function fetchTermsAcceptance() {
+    if (!isOwnProfile) return;
+
+    const { data } = await supabase
+      .from("user_terms_acceptance")
+      .select("accepted_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    setTermsAcceptedAt(data?.accepted_at ?? null);
+  }
+
+  async function loadTerms() {
+    const res = await fetch("/data/termsAndConditions.json");
+    const json = await res.json();
+    setTermsContent(json);
+  }
+
+  async function fetchMilzullCount() {
+  const { data } = await supabase
+    .from("profiles")
+    .select("milzull_count")
+    .eq("id", viewUserId || user.id)
+    .single();
+
+  setMilzullCount(data?.milzull_count ?? 0);
 }
 
 
@@ -346,7 +382,7 @@ export default function Profile({
           </div>
         </div>
 
-         {isOwnProfile && !editMode && (
+        {isOwnProfile && !editMode && (
           <button
             onClick={() => setEditMode(true)}
             className="text-blue-600 flex items-center gap-1"
@@ -359,10 +395,11 @@ export default function Profile({
 
       {/* ===== COUNTS ===== */}
       <div className="bg-white rounded-xl border p-4 grid grid-cols-3 text-center">
-        <div>
-          <p className="text-xl font-bold">{homiesCount}</p>
+        <button onClick={() => setShowHomies(true)}>
+          <p className="text-xl font-bold text-blue-600">{homiesCount}</p>
           <p className="text-xs">HOMIES</p>
-        </div>
+        </button>
+
 
         <button onClick={() => onGoMyPosts(profile.id)}>
           <p className="text-xl font-bold text-blue-600">{postCount}</p>
@@ -576,6 +613,29 @@ export default function Profile({
         </div>
       )}
 
+      {/* ===== TERMS & CONDITIONS ===== */}
+      {isOwnProfile && termsAcceptedAt && (
+        <div className="bg-white rounded-xl border p-4 space-y-2">
+          <h3 className="font-semibold text-sm">
+            Terms & Conditions
+          </h3>
+
+          <p className="text-xs text-gray-500">
+            Accepted on{" "}
+            {new Date(termsAcceptedAt).toLocaleDateString()}
+          </p>
+
+          <button
+            onClick={async () => {
+              await loadTerms();
+              setShowTerms(true);
+            }}
+            className="text-blue-600 text-sm underline"
+          >
+            View Terms
+          </button>
+        </div>
+      )}
 
 
       {/* ===== LOGOUT ===== */}
@@ -604,7 +664,55 @@ export default function Profile({
         </button>
       )}
 
+      {showTerms && termsContent && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white max-w-2xl w-full p-6 rounded-xl space-y-4">
+
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold">
+                {termsContent.title}
+              </h3>
+              <button
+                onClick={() => setShowTerms(false)}
+                className="text-gray-500 text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-sm text-gray-700 max-h-[60vh] overflow-y-auto space-y-3">
+              {termsContent.sections.map((section: any, i: number) => (
+                <div key={i}>
+                  <h4 className="font-semibold">
+                    {section.heading}
+                  </h4>
+                  <ul className="list-disc ml-5 space-y-1">
+                    {section.points.map((p: string, idx: number) => (
+                      <li key={idx}>{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHomies && (
+        <HomiesModal
+          userId={viewUserId || user.id}
+          currentUserId={user.id}
+          onClose={() => setShowHomies(false)}
+          onOpenProfile={(id) => {
+            setShowHomies(false);
+            onGoMyPosts(id); // OR setViewProfileId(id)
+          }}
+        />
+      )}
+
     </div>
+
+
   );
 }
 

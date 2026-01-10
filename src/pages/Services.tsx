@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
 import CreateServiceModal from "../components/CreateServiceModal";
+import { getOrCreateChat } from "../services/chat.service";
+
 
 export default function Services({
   serviceType,
@@ -43,6 +45,27 @@ export default function Services({
         setLoading(false);
       });
   }, [serviceType, user]);
+
+  async function acceptService(serviceId: string, creatorId: string) {
+    try {
+      const chatId = await getOrCreateChat({
+        serviceId,
+        creatorId: user.id,
+        memberIds: [user.id, creatorId],
+        isGroup: false
+      });
+
+      // navigate to chat window
+      // NOTE: this assumes Services.tsx is rendered from App.tsx
+      // so we use window event (clean + simple)
+      window.dispatchEvent(
+        new CustomEvent("open-chat", { detail: chatId })
+      );
+    } catch (err) {
+      console.error("Failed to start chat", err);
+    }
+  }
+
 
   return (
     <div className="space-y-4">
@@ -89,6 +112,14 @@ export default function Services({
           <p className="text-xs text-gray-500">
             {new Date(s.created_at).toLocaleString()}
           </p>
+
+          {/* ✅ ACCEPT BUTTON */}
+          <button
+            onClick={() => acceptService(s.id, s.creator_id)}
+            className="mt-2 text-sm bg-blue-600 text-white px-3 py-1 rounded"
+          >
+            Accept & Chat
+          </button>
         </div>
       ))}
 

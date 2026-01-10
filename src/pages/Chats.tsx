@@ -1,8 +1,9 @@
 
-
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
+
+/* ================= TYPES ================= */
 
 type Profile = {
   id: string;
@@ -16,8 +17,11 @@ type ChatRow = {
   service_id: string;
   creator_id: string;
   approved_user_id: string;
+  status: "active" | "awaiting_feedback" | "closed";
   other_user?: Profile;
 };
+
+/* ================= COMPONENT ================= */
 
 export default function Chats({
   user,
@@ -33,18 +37,39 @@ export default function Chats({
 
   useEffect(() => {
     loadChats();
+
+    // realtime updates for chat status
+    const channel = supabase
+      .channel("milzull-chats-status")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "milzull_chats"
+        },
+        () => {
+          loadChats();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function loadChats() {
     setLoading(true);
 
-    /* 1️⃣ Get chats + creator */
+    /* 1️⃣ Fetch chats with status */
     const { data: chatRows, error } = await supabase
       .from("milzull_chats")
       .select(`
         id,
         created_at,
         service_id,
+        status,
         milzull_services (
           creator_id
         )
@@ -57,7 +82,7 @@ export default function Chats({
       return;
     }
 
-    /* 2️⃣ Get approved interests */
+    /* 2️⃣ Approved interests */
     const serviceIds = chatRows.map((c: any) => c.service_id);
 
     const { data: interests } = await supabase
@@ -66,8 +91,8 @@ export default function Chats({
       .eq("status", "approved")
       .in("service_id", serviceIds);
 
-    /* 3️⃣ Build chat model */
-    const chatsNormalized: ChatRow[] = chatRows.map((c: any) => {
+    /* 3️⃣ Normalize */
+    const normalized: ChatRow[] = chatRows.map((c: any) => {
       const approved = interests?.find(
         i => i.service_id === c.service_id
       );
@@ -77,14 +102,15 @@ export default function Chats({
         created_at: c.created_at,
         service_id: c.service_id,
         creator_id: c.milzull_services.creator_id,
-        approved_user_id: approved?.user_id || ""
+        approved_user_id: approved?.user_id || "",
+        status: c.status
       };
     });
 
-    /* 4️⃣ Determine OTHER user */
+    /* 4️⃣ Resolve other user */
     const otherUserIds = Array.from(
       new Set(
-        chatsNormalized.map(c =>
+        normalized.map(c =>
           c.creator_id === user.id
             ? c.approved_user_id
             : c.creator_id
@@ -92,14 +118,13 @@ export default function Chats({
       )
     ).filter(Boolean);
 
-    /* 5️⃣ Fetch profiles */
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, display_name, avatar_url")
       .in("id", otherUserIds);
 
-    /* 6️⃣ Merge */
-    const finalChats = chatsNormalized.map(chat => {
+    /* 5️⃣ Merge */
+    const finalChats = normalized.map(chat => {
       const otherUserId =
         chat.creator_id === user.id
           ? chat.approved_user_id
@@ -116,6 +141,7 @@ export default function Chats({
   }
 
   /* ================= UI ================= */
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold">Chats</h2>
@@ -131,6 +157,7 @@ export default function Chats({
           key={chat.id}
           className="bg-white border rounded-xl p-4 flex justify-between items-center"
         >
+          {/* LEFT */}
           <div
             className="cursor-pointer"
             onClick={() =>
@@ -146,11 +173,22 @@ export default function Chats({
             </p>
           </div>
 
+          {/* RIGHT */}
           <button
             onClick={() => onOpenChat(chat.id)}
-            className="text-blue-600 font-medium text-sm"
+            className={`font-medium text-sm ${
+              chat.status === "active"
+                ? "text-blue-600"
+                : chat.status === "awaiting_feedback"
+                ? "text-orange-600"
+                : "text-gray-400"
+            }`}
           >
-            Open
+            {chat.status === "active"
+              ? "Open"
+              : chat.status === "awaiting_feedback"
+              ? "Feedback Pending"
+              : "Closed"}
           </button>
         </div>
       ))}
